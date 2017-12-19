@@ -50,15 +50,15 @@ func Chan(s Splitter) (<-chan []byte, <-chan error) {
 }
 
 type sizeSplitterv2 struct {
-	r    io.Reader
-	size int64
-	err  error
+	r   io.Reader
+	buf []byte
+	err error
 }
 
 func NewSizeSplitter(r io.Reader, size int64) Splitter {
 	return &sizeSplitterv2{
-		r:    r,
-		size: size,
+		r:   r,
+		buf: make([]byte, size),
 	}
 }
 
@@ -66,17 +66,23 @@ func (ss *sizeSplitterv2) NextBytes() ([]byte, error) {
 	if ss.err != nil {
 		return nil, ss.err
 	}
-	buf := make([]byte, ss.size)
-	n, err := io.ReadFull(ss.r, buf)
-	if err == io.ErrUnexpectedEOF {
+
+	size := len(ss.buf)
+	n, err := io.ReadFull(ss.r, ss.buf)
+	switch err {
+	case io.ErrUnexpectedEOF:
 		ss.err = io.EOF
-		err = nil
-	}
-	if err != nil {
+		ret := make([]byte, n)
+		copy(ret, ss.buf)
+		ss.buf = nil
+		return ret, nil
+	case nil:
+		var ret []byte
+		ss.buf, ret = make([]byte, size), ss.buf
+		return ret, nil
+	default:
 		return nil, err
 	}
-
-	return buf[:n], nil
 }
 
 func (ss *sizeSplitterv2) Reader() io.Reader {
